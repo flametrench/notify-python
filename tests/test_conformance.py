@@ -25,6 +25,7 @@ from flametrench_ids import generate
 
 from flametrench_notify import (
     InMemoryNotificationStore,
+    InvalidFormatError,
     NotFoundError,
     Notification,
     PreconditionError,
@@ -34,6 +35,7 @@ _FIXTURES_DIR = Path(__file__).parent / "conformance" / "fixtures"
 _VAR_PATTERN = re.compile(r"^\{([a-z_][a-z0-9_]*)\}$")
 
 _ERROR_CLASSES: dict[str, type[Exception]] = {
+    "InvalidFormatError": InvalidFormatError,
     "NotFoundError": NotFoundError,
     "PreconditionError": PreconditionError,
 }
@@ -138,6 +140,23 @@ def _invoke_op(
 
 def _run_test(test: dict[str, Any]) -> None:
     store = InMemoryNotificationStore()
+
+    # Simple single-op format: top-level `input` + `expected` (no `steps`).
+    if "steps" not in test:
+        inp = test["input"]
+        expected = test.get("expected", {})
+        if "error" in expected:
+            error_class = _ERROR_CLASSES[expected["error"]]
+            with pytest.raises(error_class):
+                store.create_notification(
+                    scope=inp["scope"],
+                    recipient_usr_id=inp["recipient_usr_id"],
+                    type=inp["type"],
+                    subject=inp["subject"],
+                    data=inp.get("data", {}),
+                )
+        return
+
     variables: dict[str, Any] = {
         name: generate("usr") for name in test.get("users", [])
     }
@@ -188,4 +207,14 @@ def test_lifecycle_shape_conformance(test_case: dict[str, Any]) -> None:
     "test_case", _collect_tests("notifications/recipient-scope.json")
 )
 def test_recipient_scope_conformance(test_case: dict[str, Any]) -> None:
+    _run_test(test_case)
+
+
+# ─── notifications.error-cases — input validation + terminal-state (ADR 0022) ──
+
+
+@pytest.mark.parametrize(
+    "test_case", _collect_tests("notifications/error-cases.json")
+)
+def test_error_cases_conformance(test_case: dict[str, Any]) -> None:
     _run_test(test_case)
