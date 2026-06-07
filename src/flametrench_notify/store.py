@@ -30,33 +30,36 @@ class NotificationStore(Protocol):
         """
         ...
 
-    def get_notification(self, not_id: str) -> Notification:
-        """Fetch a notification by id.
+    def get_notification(self, *, recipient_usr_id: str, not_id: str) -> Notification:
+        """Fetch a notification scoped to the authenticated recipient.
 
-        Raises ``NotFoundError`` if not found or caller is not the recipient.
+        Raises ``NotFoundError`` if not found OR if the notification belongs to
+        a different recipient (indistinguishable — no cross-recipient read path).
         """
         ...
 
-    def mark_read(self, not_id: str) -> Notification:
-        """Transition state to ``read``.
+    def mark_read(self, *, recipient_usr_id: str, not_id: str) -> Notification:
+        """Transition state to ``read`` for the authenticated recipient.
 
-        Raises ``NotFoundError`` if not found.
+        Raises ``NotFoundError`` if not found or not owned by recipient.
         Raises ``PreconditionError`` if already ``dismissed``.
         """
         ...
 
-    def mark_unread(self, not_id: str) -> Notification:
-        """Transition state to ``unread``.
+    def mark_unread(self, *, recipient_usr_id: str, not_id: str) -> Notification:
+        """Transition state to ``unread`` for the authenticated recipient.
 
-        Raises ``NotFoundError`` if not found.
+        Raises ``NotFoundError`` if not found or not owned by recipient.
         Raises ``PreconditionError`` if already ``dismissed``.
         """
         ...
 
-    def dismiss(self, not_id: str) -> Notification:
-        """Terminal-dismiss a notification.
+    def dismiss(self, *, recipient_usr_id: str, not_id: str) -> Notification:
+        """Terminal-dismiss a notification for the authenticated recipient.
 
-        Raises ``NotFoundError`` if not found.
-        Raises ``PreconditionError`` if already ``dismissed``.
+        Raises ``NotFoundError`` if not found or not owned by recipient (checked
+        BEFORE state; a foreign+dismissed notification → NotFoundError, never
+        PreconditionError — prevents leaking existence via error-code differential).
+        Raises ``PreconditionError`` if already ``dismissed`` (own notification only).
         """
         ...

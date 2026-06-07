@@ -92,25 +92,37 @@ class InMemoryNotificationStore:
         self._notifications[not_id] = notification
         return notification
 
-    def get_notification(self, not_id: str) -> Notification:
+    def get_notification(self, *, recipient_usr_id: str, not_id: str) -> Notification:
+        return self._get_owned(recipient_usr_id, not_id)
+
+    def mark_read(self, *, recipient_usr_id: str, not_id: str) -> Notification:
+        return self._transition(recipient_usr_id, not_id, NotificationState.READ)
+
+    def mark_unread(self, *, recipient_usr_id: str, not_id: str) -> Notification:
+        return self._transition(recipient_usr_id, not_id, NotificationState.UNREAD)
+
+    def dismiss(self, *, recipient_usr_id: str, not_id: str) -> Notification:
+        return self._transition(recipient_usr_id, not_id, NotificationState.DISMISSED)
+
+    def _get_owned(self, recipient_usr_id: str, not_id: str) -> Notification:
+        """Fetch a notification, enforcing recipient ownership.
+
+        Returns the notification iff it exists AND belongs to recipient_usr_id.
+        Both "not found" and "wrong recipient" resolve to the same NotFoundError
+        — no cross-recipient read path (ADR 0022 §Access + §Tenancy non-inference).
+        """
         notification = self._notifications.get(not_id)
-        if notification is None:
+        if notification is None or notification.recipient_usr_id != recipient_usr_id:
             raise NotFoundError(f"Notification not found: {not_id!r}")
         return notification
 
-    def mark_read(self, not_id: str) -> Notification:
-        return self._transition(not_id, NotificationState.READ)
-
-    def mark_unread(self, not_id: str) -> Notification:
-        return self._transition(not_id, NotificationState.UNREAD)
-
-    def dismiss(self, not_id: str) -> Notification:
-        return self._transition(not_id, NotificationState.DISMISSED)
-
-    def _transition(self, not_id: str, new_state: NotificationState) -> Notification:
-        notification = self._notifications.get(not_id)
-        if notification is None:
-            raise NotFoundError(f"Notification not found: {not_id!r}")
+    def _transition(
+        self, recipient_usr_id: str, not_id: str, new_state: NotificationState
+    ) -> Notification:
+        # Existence + ownership check FIRST — a foreign+dismissed notification
+        # must raise NotFoundError, not PreconditionError (ADR 0022 §Errors /
+        # "Existence/ownership check takes precedence over state-machine validation").
+        notification = self._get_owned(recipient_usr_id, not_id)
         if notification.state == NotificationState.DISMISSED:
             raise PreconditionError(
                 f"Notification {not_id!r} is dismissed and accepts no further transitions"

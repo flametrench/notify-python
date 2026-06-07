@@ -102,14 +102,14 @@ class TestGet:
     def test_get_returns_stored_notification(self):
         store = _store()
         created = _create_minimal(store)
-        fetched = store.get_notification(created.id)
+        fetched = store.get_notification(recipient_usr_id=created.recipient_usr_id, not_id=created.id)
         assert fetched.id == created.id
         assert fetched.type == created.type
 
     def test_get_unknown_raises_not_found(self):
         store = _store()
         with pytest.raises(NotFoundError):
-            store.get_notification(generate("not"))
+            store.get_notification(recipient_usr_id=generate("usr"), not_id=generate("not"))
 
     def test_get_preserves_all_fields(self):
         store = _store()
@@ -121,11 +121,27 @@ class TestGet:
             subject={"kind": "org", "id": "org_" + "a" * 32},
             data={"from": "Bob"},
         )
-        fetched = store.get_notification(created.id)
+        fetched = store.get_notification(recipient_usr_id=usr_id, not_id=created.id)
         assert fetched.scope == _VALID_SCOPE
         assert fetched.recipient_usr_id == usr_id
         assert fetched.subject.kind == "org"
         assert fetched.data == {"from": "Bob"}
+
+    def test_get_cross_recipient_raises_not_found(self):
+        store = _store()
+        created = _create_minimal(store)
+        intruder = generate("usr")
+        with pytest.raises(NotFoundError):
+            store.get_notification(recipient_usr_id=intruder, not_id=created.id)
+
+    def test_get_foreign_and_nonexistent_same_error(self):
+        store = _store()
+        created = _create_minimal(store)
+        intruder = generate("usr")
+        with pytest.raises(NotFoundError):
+            store.get_notification(recipient_usr_id=intruder, not_id=created.id)
+        with pytest.raises(NotFoundError):
+            store.get_notification(recipient_usr_id=intruder, not_id=generate("not"))
 
 
 class TestMarkRead:
@@ -133,99 +149,126 @@ class TestMarkRead:
         store = _store()
         n = _create_minimal(store)
         assert n.state == NotificationState.UNREAD
-        updated = store.mark_read(n.id)
+        updated = store.mark_read(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
         assert updated.state == NotificationState.READ
 
     def test_mark_read_updates_state_changed_at(self):
         store = _store()
         n = _create_minimal(store)
         before = datetime.now(timezone.utc)
-        updated = store.mark_read(n.id)
+        updated = store.mark_read(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
         after = datetime.now(timezone.utc)
         assert before <= updated.state_changed_at <= after
 
     def test_mark_read_get_reflects_new_state(self):
         store = _store()
         n = _create_minimal(store)
-        store.mark_read(n.id)
-        fetched = store.get_notification(n.id)
+        store.mark_read(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
+        fetched = store.get_notification(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
         assert fetched.state == NotificationState.READ
 
     def test_mark_read_from_dismissed_raises_precondition(self):
         store = _store()
         n = _create_minimal(store)
-        store.dismiss(n.id)
+        store.dismiss(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
         with pytest.raises(PreconditionError):
-            store.mark_read(n.id)
+            store.mark_read(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
 
     def test_mark_read_unknown_raises_not_found(self):
         store = _store()
         with pytest.raises(NotFoundError):
-            store.mark_read(generate("not"))
+            store.mark_read(recipient_usr_id=generate("usr"), not_id=generate("not"))
+
+    def test_mark_read_cross_recipient_raises_not_found(self):
+        store = _store()
+        n = _create_minimal(store)
+        with pytest.raises(NotFoundError):
+            store.mark_read(recipient_usr_id=generate("usr"), not_id=n.id)
 
 
 class TestMarkUnread:
     def test_mark_unread_from_read(self):
         store = _store()
         n = _create_minimal(store)
-        store.mark_read(n.id)
-        updated = store.mark_unread(n.id)
+        store.mark_read(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
+        updated = store.mark_unread(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
         assert updated.state == NotificationState.UNREAD
 
     def test_mark_unread_toggle_both_directions(self):
         store = _store()
         n = _create_minimal(store)
-        store.mark_read(n.id)
-        store.mark_unread(n.id)
-        fetched = store.get_notification(n.id)
+        store.mark_read(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
+        store.mark_unread(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
+        fetched = store.get_notification(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
         assert fetched.state == NotificationState.UNREAD
 
     def test_mark_unread_from_dismissed_raises_precondition(self):
         store = _store()
         n = _create_minimal(store)
-        store.dismiss(n.id)
+        store.dismiss(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
         with pytest.raises(PreconditionError):
-            store.mark_unread(n.id)
+            store.mark_unread(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
 
     def test_mark_unread_unknown_raises_not_found(self):
         store = _store()
         with pytest.raises(NotFoundError):
-            store.mark_unread(generate("not"))
+            store.mark_unread(recipient_usr_id=generate("usr"), not_id=generate("not"))
+
+    def test_mark_unread_cross_recipient_raises_not_found(self):
+        store = _store()
+        n = _create_minimal(store)
+        with pytest.raises(NotFoundError):
+            store.mark_unread(recipient_usr_id=generate("usr"), not_id=n.id)
 
 
 class TestDismiss:
     def test_dismiss_from_unread(self):
         store = _store()
         n = _create_minimal(store)
-        updated = store.dismiss(n.id)
+        updated = store.dismiss(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
         assert updated.state == NotificationState.DISMISSED
 
     def test_dismiss_from_read(self):
         store = _store()
         n = _create_minimal(store)
-        store.mark_read(n.id)
-        updated = store.dismiss(n.id)
+        store.mark_read(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
+        updated = store.dismiss(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
         assert updated.state == NotificationState.DISMISSED
 
     def test_dismiss_is_terminal(self):
         store = _store()
         n = _create_minimal(store)
-        store.dismiss(n.id)
+        store.dismiss(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
         with pytest.raises(PreconditionError):
-            store.dismiss(n.id)
+            store.dismiss(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
 
     def test_dismiss_updates_state_changed_at(self):
         store = _store()
         n = _create_minimal(store)
         before = datetime.now(timezone.utc)
-        updated = store.dismiss(n.id)
+        updated = store.dismiss(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
         after = datetime.now(timezone.utc)
         assert before <= updated.state_changed_at <= after
 
     def test_dismiss_unknown_raises_not_found(self):
         store = _store()
         with pytest.raises(NotFoundError):
-            store.dismiss(generate("not"))
+            store.dismiss(recipient_usr_id=generate("usr"), not_id=generate("not"))
+
+    def test_dismiss_cross_recipient_raises_not_found(self):
+        store = _store()
+        n = _create_minimal(store)
+        with pytest.raises(NotFoundError):
+            store.dismiss(recipient_usr_id=generate("usr"), not_id=n.id)
+
+    def test_dismiss_foreign_already_dismissed_is_not_found_not_precondition(self):
+        """Existence-before-state: foreign+dismissed → NotFoundError, never PreconditionError."""
+        store = _store()
+        n = _create_minimal(store)
+        store.dismiss(recipient_usr_id=n.recipient_usr_id, not_id=n.id)
+        intruder = generate("usr")
+        with pytest.raises(NotFoundError):
+            store.dismiss(recipient_usr_id=intruder, not_id=n.id)
 
 
 class TestValidation:

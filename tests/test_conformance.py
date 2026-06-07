@@ -100,7 +100,23 @@ def _assert_superset(actual: Any, expected: Any, path: str = "") -> None:
         )
 
 
-def _invoke_op(store: InMemoryNotificationStore, op: str, args: dict[str, Any]) -> Any:
+def _invoke_op(
+    store: InMemoryNotificationStore,
+    op: str,
+    args: dict[str, Any],
+    variables: dict[str, Any],
+) -> Any:
+    def _recipient() -> str:
+        # Use the explicit arg if provided (recipient-scope fixture); fall back
+        # to the 'recipient' variable (lifecycle fixture, which pre-dates the
+        # Option-2 signatures and doesn't repeat the recipient in every step).
+        r = args.get("recipient_usr_id") or variables.get("recipient")
+        if not r:
+            raise RuntimeError(
+                f"Op {op!r} requires recipient_usr_id but none supplied or in scope"
+            )
+        return r
+
     if op == "create_notification":
         return store.create_notification(
             scope=args["scope"],
@@ -110,13 +126,13 @@ def _invoke_op(store: InMemoryNotificationStore, op: str, args: dict[str, Any]) 
             data=args.get("data", {}),
         )
     if op == "get_notification":
-        return store.get_notification(args["id"])
+        return store.get_notification(recipient_usr_id=_recipient(), not_id=args["id"])
     if op == "mark_read":
-        return store.mark_read(args["id"])
+        return store.mark_read(recipient_usr_id=_recipient(), not_id=args["id"])
     if op == "mark_unread":
-        return store.mark_unread(args["id"])
+        return store.mark_unread(recipient_usr_id=_recipient(), not_id=args["id"])
     if op == "dismiss":
-        return store.dismiss(args["id"])
+        return store.dismiss(recipient_usr_id=_recipient(), not_id=args["id"])
     raise RuntimeError(f"Unknown fixture op: {op!r}")
 
 
@@ -134,10 +150,10 @@ def _run_test(test: dict[str, Any]) -> None:
         if expected and "error" in expected:
             error_class = _ERROR_CLASSES[expected["error"]]
             with pytest.raises(error_class):
-                _invoke_op(store, op, resolved_input)
-            return
+                _invoke_op(store, op, resolved_input, variables)
+            continue
 
-        result = _invoke_op(store, op, resolved_input)
+        result = _invoke_op(store, op, resolved_input, variables)
 
         if expected and "result" in expected:
             resolved_spec = _resolve(expected["result"], variables)
@@ -162,4 +178,14 @@ def _collect_tests(relative_path: str) -> list[Any]:
     "test_case", _collect_tests("notifications/lifecycle-shape.json")
 )
 def test_lifecycle_shape_conformance(test_case: dict[str, Any]) -> None:
+    _run_test(test_case)
+
+
+# ─── notifications.recipient-scope — SDK-enforced recipient scoping (ADR 0022) ───
+
+
+@pytest.mark.parametrize(
+    "test_case", _collect_tests("notifications/recipient-scope.json")
+)
+def test_recipient_scope_conformance(test_case: dict[str, Any]) -> None:
     _run_test(test_case)
